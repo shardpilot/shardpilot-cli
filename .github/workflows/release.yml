@@ -1,0 +1,141 @@
+# Cuts a release from a tag.
+#
+# The packaging path this runs is NOT first exercised here: `make
+# release-dryrun` runs on every pull request in ci.yml and does everything
+# below except the two irreversible steps. What is unique to this workflow is
+# creating the GitHub Release and uploading to it.
+#
+# ⚠ A TAG IS NOT REVERSIBLE once anyone has fetched it. For a Go module the
+# proxy and the checksum database cache a version permanently — deleting or
+# moving the tag afterwards breaks consumers rather than withdrawing the
+# release, and the only sanctioned retraction is a NEW higher version
+# carrying a `retract` directive. The refusals in this workflow are the
+# procedure; there is no separate runbook, and an earlier version of this
+# comment pointed at a release document that does not exist in this
+# repository.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ${{ fromJSON(github.event.repository.private && '["self-hosted","Linux","X64"]' || '["ubuntu-24.04"]') }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: the version stamp and the release notes both come
+          # from tags, and a shallow clone silently produces neither.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          # ⚠ READ FROM go.mod, NOT WRITTEN AGAIN. This job installed 1.26.5
+          # while the other installed 1.27.0 and `make ci` rejects any
+          # formatter that is not the version go.mod names — so every
+          # tag-triggered release died in its own test step before building
+          # anything, and the two workflows could drift again the moment one
+          # was edited alone.
+          go-version-file: go.mod
+          cache: false
+
+      # The tag must point at a commit that already passed CI. Building a tag
+      # that was pushed to an untested commit is how an untested binary gets
+      # a version number.
+      - name: Refuse a tag that is not on an ancestor of the default branch
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "REFUSING: ${GITHUB_REF_NAME} points at a commit that is not on main." >&2
+            echo "  A release is cut from a commit that has been reviewed and merged." >&2
+            exit 1
+          fi
+
+      - name: Verify the working tree is clean
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "REFUSING: the checkout is dirty; Go 1.24+ stamps a +dirty suffix." >&2
+            git status --porcelain >&2
+            exit 1
+          fi
+
+      - name: Test
+        run: make ci
+
+      - name: Build the release matrix and checksums
+        run: make release-dryrun
+
+      # The notes come from the first CHANGELOG section. If that section is
+      # still "Unreleased", the release PR did not roll it — and a release
+      # whose notes say "Unreleased" is worse than one with no notes, because
+      # it looks deliberate.
+      - name: Refuse to publish an unrolled changelog
+        run: |
+          set -euo pipefail
+          first="$(grep -m1 '^## ' CHANGELOG.md)"
+          case "$first" in
+            *[Uu]nreleased*)
+              echo "REFUSING: the top CHANGELOG section is still '$first'." >&2
+              echo "  Roll it under a version heading before tagging." >&2
+              exit 1 ;;
+          esac
+
+          # ⚠ "NOT Unreleased" IS NOT "THE RIGHT VERSION". Pushing v0.2.0 with
+          # `## [0.1.0]` on top passed the check above and would publish one
+          # version's release under another version's notes — on a tag that
+          # cannot be withdrawn. So: the tag must be SemVer, and its version
+          # must equal the changelog head's.
+          # ⚠ A SHELL GLOB IS NOT A SEMVER CHECK. `v[0-9]*.[0-9]*.[0-9]*`
+          # accepted `v01.02.03` (leading zeros are not SemVer) and
+          # `v1.2.3.4` (four components) — both would have reached
+          # `gh release create` and published an irreversible module tag.
+          # Anchored ERE, with the optional prerelease and build-metadata
+          # parts SemVer actually defines.
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if ! printf '%s' "${GITHUB_REF_NAME}" | grep -qE "$semver"; then
+            echo "REFUSING: '${GITHUB_REF_NAME}' is not a SemVer vMAJOR.MINOR.PATCH tag." >&2
+            exit 1
+          fi
+          tag_version="${GITHUB_REF_NAME#v}"
+          head_version="$(printf '%s' "$first" | sed -nE 's/^## \[?v?([0-9]+\.[0-9]+\.[0-9]+[^][:space:]]*)\]?.*/\1/p')"
+          if [ -z "$head_version" ]; then
+            echo "REFUSING: cannot parse a version out of the changelog head '$first'." >&2
+            exit 1
+          fi
+          if [ "$tag_version" != "$head_version" ]; then
+            echo "REFUSING: tag ${GITHUB_REF_NAME} does not match the changelog head '$first'." >&2
+            echo "  tag=${tag_version} changelog=${head_version}" >&2
+            echo "  Publishing here would ship one version under another's notes." >&2
+            exit 1
+          fi
+          echo "changelog head: $first (matches ${GITHUB_REF_NAME})"
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # ANY SemVer prerelease component, not three hard-coded names. A tag
+          # like v1.2.3-preview.1 is a prerelease by the spec, and publishing
+          # it as a normal release lets GitHub select it as Latest.
+          prerelease=""
+          case "${GITHUB_REF_NAME}" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "${GITHUB_REF_NAME}" \
+            --verify-tag \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file <(awk '/^## /{n++} n==1' CHANGELOG.md) \
+            ${prerelease} \
+            dist/shardpilot_*.tar.gz dist/shardpilot_*.zip dist/SHA256SUMS
