@@ -26,7 +26,7 @@ func instantRetries(t *testing.T) {
 func runCLI(t *testing.T, argv []string, env map[string]string) (stdout, stderr string, code int) {
 	t.Helper()
 	var out, errBuf bytes.Buffer
-	code = Run(argv, func(key string) string { return env[key] }, &out, &errBuf)
+	code = Run(argv, func(key string) (string, bool) { value, ok := env[key]; return value, ok }, &out, &errBuf)
 	return out.String(), errBuf.String(), code
 }
 
@@ -41,8 +41,67 @@ func writeSymFile(t *testing.T, name, content string) string {
 
 func envWith(url string) map[string]string {
 	return map[string]string{
-		"SHARDPILOT_SYMBOLS_KEY": "sp_test_key",
-		"SHARDPILOT_SYMBOLS_URL": url,
+		"SHARDPILOT_SYMBOLS_KEY":     "sp_test_key",
+		"SHARDPILOT_SYMBOLS_URL":     url,
+		"SHARDPILOT_SYMBOLS_CHANNEL": "develop",
+	}
+}
+
+// The build channel is required: the flag, else SHARDPILOT_SYMBOLS_CHANNEL.
+// It is sent as exactly one `channel` field; a missing or unknown channel
+// stops the command before any request. An explicitly empty flag or variable
+// is refused, never treated as unset.
+func TestUploadChannel(t *testing.T) {
+	var hits atomic.Int32
+	var got atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("parse multipart: %v", err)
+		}
+		got.Store(strings.Join(r.MultipartForm.Value["channel"], ","))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		io.WriteString(w, createdEnvelope)
+	}))
+	defer srv.Close()
+
+	const unset = "\x00unset"
+	path := writeSymFile(t, "app.sym", "MODULE a b c d\n")
+	for _, tc := range []struct {
+		name              string
+		flags             []string
+		env, want, stderr string
+	}{
+		{"flag only", []string{"--channel", "release"}, unset, "release", ""},
+		{"env only", nil, "develop", "develop", ""},
+		{"flag overrides env", []string{"--channel", "release"}, "develop", "release", ""},
+		{"missing both", nil, unset, "", "--channel is required"},
+		{"invalid flag", []string{"--channel", "Release"}, "develop", "", `--channel "Release"`},
+		{"invalid env", nil, "prod", "", `SHARDPILOT_SYMBOLS_CHANNEL "prod"`},
+		{"empty flag with env", []string{"--channel="}, "release", "", `--channel ""`},
+		{"empty env", nil, "", "", `SHARDPILOT_SYMBOLS_CHANNEL ""`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hits.Store(0)
+			got.Store("")
+			env := envWith(srv.URL)
+			delete(env, "SHARDPILOT_SYMBOLS_CHANNEL")
+			if tc.env != unset {
+				env["SHARDPILOT_SYMBOLS_CHANNEL"] = tc.env
+			}
+			argv := append([]string{"symbols", "upload", "--platform", "linux"}, tc.flags...)
+			_, stderr, code := runCLI(t, append(argv, path), env)
+			if tc.want == "" {
+				if code != ExitUsage || hits.Load() != 0 || !strings.Contains(stderr, tc.stderr) {
+					t.Fatalf("exit=%d requests=%d stderr=%q; want %d, no request, %q", code, hits.Load(), stderr, ExitUsage, tc.stderr)
+				}
+				return
+			}
+			if code != ExitOK || got.Load() != tc.want {
+				t.Fatalf("exit=%d channel field=%q stderr=%q; want 0 and %q", code, got.Load(), stderr, tc.want)
+			}
+		})
 	}
 }
 

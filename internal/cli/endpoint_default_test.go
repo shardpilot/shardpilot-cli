@@ -45,7 +45,7 @@ func TestNoURLUsesTheDefaultSymbolsHost(t *testing.T) {
 	defaultSymbolsURL = srv.URL
 	t.Cleanup(func() { defaultSymbolsURL = orig })
 
-	env := map[string]string{"SHARDPILOT_SYMBOLS_KEY": "sp_test_key"}
+	env := map[string]string{"SHARDPILOT_SYMBOLS_KEY": "sp_test_key", "SHARDPILOT_SYMBOLS_CHANNEL": "develop"}
 	path := writeSymFile(t, "app.sym", "MODULE a b c d\n")
 	for _, argv := range [][]string{
 		{"symbols", "upload", "--platform", "linux", path},

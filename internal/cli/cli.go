@@ -25,7 +25,7 @@ import (
 // version` and in every User-Agent.
 var version = developmentVersion
 
-const developmentVersion = "0.2.0-dev"
+const developmentVersion = "0.3.0-dev"
 
 // resolveVersion returns the linker-stamped version when there is one, and
 // otherwise falls back to the module version Go records in the binary.
@@ -60,6 +60,9 @@ const (
 	// envSymbolsURL overrides the symbols endpoint base URL; --url overrides
 	// it in turn.
 	envSymbolsURL = "SHARDPILOT_SYMBOLS_URL"
+	// envSymbolsChannel names the upload's build channel when --channel is
+	// not given.
+	envSymbolsChannel = "SHARDPILOT_SYMBOLS_CHANNEL"
 )
 
 // defaultSymbolsURL is the public symbols host, used when neither --url nor
@@ -155,9 +158,11 @@ Run "shardpilot symbols upload -h" or "shardpilot symbols missing -h" for a
 command's flags, environment variables, and exit codes.
 `
 
-// Run executes the CLI and returns its process exit code. getenv, stdout and
-// stderr are injected so tests drive the real command path end-to-end.
-func Run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
+// Run executes the CLI and returns its process exit code. lookupEnv (as
+// os.LookupEnv), stdout and stderr are injected so tests drive the real
+// command path end-to-end.
+func Run(argv []string, lookupEnv func(string) (string, bool), stdout, stderr io.Writer) int {
+	getenv := func(key string) string { value, _ := lookupEnv(key); return value }
 	if len(argv) == 0 {
 		fmt.Fprint(stderr, rootUsage)
 		return ExitUsage
@@ -171,7 +176,7 @@ func Run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return ExitOK
 	case "symbols":
 		if len(argv) >= 2 && argv[1] == "upload" {
-			return runSymbolsUpload(argv[2:], getenv, stdout, stderr)
+			return runSymbolsUpload(argv[2:], getenv, lookupEnv, stdout, stderr)
 		}
 		if len(argv) >= 2 && argv[1] == "missing" {
 			return runSymbolsMissing(argv[2:], getenv, stdout, stderr)

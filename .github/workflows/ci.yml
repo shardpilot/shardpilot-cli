@@ -121,7 +121,7 @@ jobs:
       - name: Check explicit release version stamping
         run: |
           ./dist/shardpilot_linux_amd64 version
-          make build VERSION=v0.2.0
+          make build VERSION=v0.3.0
           actual="$(./bin/shardpilot version)"
           printf '%s\n' "$actual"
-          test "$actual" = 'shardpilot v0.2.0'
+          test "$actual" = 'shardpilot v0.3.0'

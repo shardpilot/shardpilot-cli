@@ -45,6 +45,9 @@ environment:
                          (default: https://symbols.shardpilot.com). Plain
                          http is refused unless the host is localhost or a
                          loopback address.
+  SHARDPILOT_SYMBOLS_CHANNEL
+                         Build channel when --channel is not given: develop
+                         or release. One of the two is required.
 
 exit codes:
   0  every file uploaded
@@ -80,11 +83,12 @@ type fileError struct {
 	Message string `json:"message"`
 }
 
-func runSymbolsUpload(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
+func runSymbolsUpload(args []string, getenv func(string) string, lookupEnv func(string) (string, bool), stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("shardpilot symbols upload", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
 		baseURL  = fs.String("url", "", "endpoint base URL (default: $SHARDPILOT_SYMBOLS_URL, then https://symbols.shardpilot.com)")
+		channel  = fs.String("channel", "", "build channel (required): develop or release (default: $SHARDPILOT_SYMBOLS_CHANNEL)")
 		platform = fs.String("platform", "", "symbol platform (required): "+strings.Join(symbols.Platforms, ", ")+"; case is ignored, and mac, osx, darwin, win, win64, Windows* target names, linuxarm64, iphone, ipad and ipados are folded")
 		format   = fs.String("format", "auto", "symbol format: auto, breakpad, dsym, pdb, elf, proguard or il2cpp_map")
 		debugID  = fs.String("debug-id", "", "debug identifier, single file only: required for pdb and il2cpp_map, the app build id for proguard, optional for elf")
@@ -134,6 +138,22 @@ func runSymbolsUpload(args []string, getenv func(string) string, stdout, stderr 
 	if sendPlatform != *platform && !*jsonOut {
 		fmt.Fprintf(stderr, "shardpilot symbols upload: --platform %q is sent as %q\n", *platform, sendPlatform)
 	}
+	// A given flag wins over the environment, even when empty; the value is
+	// taken exactly as given, and a set but empty variable is not unset.
+	channelGiven := false
+	fs.Visit(func(f *flag.Flag) { channelGiven = channelGiven || f.Name == "channel" })
+	sendChannel, channelSource := *channel, "--channel"
+	if !channelGiven {
+		sendChannel, channelGiven = lookupEnv(envSymbolsChannel)
+		channelSource = envSymbolsChannel
+	}
+	switch {
+	case sendChannel == "develop" || sendChannel == "release":
+	case !channelGiven:
+		return usagef("--channel is required: develop or release (or set %s)", envSymbolsChannel)
+	default:
+		return usagef("%s %q is not a build channel; accepted: develop, release", channelSource, sendChannel)
+	}
 	explicitFormat := strings.ToLower(strings.TrimSpace(*format))
 	switch {
 	case explicitFormat == "auto":
@@ -165,7 +185,7 @@ func runSymbolsUpload(args []string, getenv func(string) string, stdout, stderr 
 	exitCode := ExitOK
 	uploaded := 0
 	for _, path := range paths {
-		res := uploadOne(uploader, host, path, sendPlatform, explicitFormat, *debugID, *timeout)
+		res := uploadOne(uploader, host, path, sendPlatform, sendChannel, explicitFormat, *debugID, *timeout)
 		if *jsonOut {
 			if err := json.NewEncoder(stdout).Encode(res); err != nil {
 				fmt.Fprintf(stderr, "shardpilot symbols upload: write result: %v\n", err)
@@ -185,7 +205,7 @@ func runSymbolsUpload(args []string, getenv func(string) string, stdout, stderr 
 	return exitCode
 }
 
-func uploadOne(uploader *symbols.Uploader, host, path, platform, explicitFormat, debugID string, timeout time.Duration) fileResult {
+func uploadOne(uploader *symbols.Uploader, host, path, platform, channel, explicitFormat, debugID string, timeout time.Duration) fileResult {
 	res := fileResult{Path: path, Platform: platform, DebugID: debugID}
 	fail := func(exit int, code, message string) fileResult {
 		res.OK = false
@@ -223,6 +243,7 @@ func uploadOne(uploader *symbols.Uploader, host, path, platform, explicitFormat,
 	result, err := uploader.Upload(ctx, symbols.Request{
 		Path:     path,
 		Platform: platform,
+		Channel:  channel,
 		Format:   format,
 		DebugID:  debugID,
 	})

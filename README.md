@@ -12,8 +12,9 @@ The wire contract this CLI is built against is the ShardPilot symbol-upload API 
 
 ## Install
 
-Release downloads require a published version. Until one is available, build
-from a checkout:
+Releases are published on the [releases page](https://github.com/shardpilot/shardpilot-cli/releases):
+one archive per platform plus `SHA256SUMS`, verified and installed as shown below.
+To build from a checkout instead:
 
 ```sh
 make build            # static host binary in bin/shardpilot
@@ -23,7 +24,7 @@ make build-all        # release matrix in dist/: linux, darwin, windows × amd64
 After a version is published, pin that exact version for source installation:
 
 ```sh
-go install github.com/shardpilot/shardpilot-cli/cmd/shardpilot@v0.2.0
+go install github.com/shardpilot/shardpilot-cli/cmd/shardpilot@v0.3.0
 ```
 
 `go install` compiles the package directly and never applies this repository's
@@ -34,11 +35,11 @@ way.
 For a published release, download the matching archive and `SHA256SUMS`.
 Archives cover Linux, macOS and Windows on amd64 and arm64; each carries the
 static binary, `LICENSE` and `NOTICE`. Unix archives preserve executable mode.
-Select the published version (the examples use `v0.2.0`) and its platform archive:
+Select the published version (the examples use `v0.3.0`) and its platform archive:
 
 ```sh
 set -eu
-version=v0.2.0
+version=v0.3.0
 asset=shardpilot_linux_amd64.tar.gz
 gh release download "$version" --repo shardpilot/shardpilot-cli \
   --pattern "$asset" --pattern SHA256SUMS
@@ -70,6 +71,7 @@ stops either command before it sends a request.
 
 ```sh
 export SHARDPILOT_SYMBOLS_KEY="sp_live_..."       # symbols:write scope — env only, never a flag
+export SHARDPILOT_SYMBOLS_CHANNEL=release         # build channel: develop or release (--channel overrides it)
 
 # Breakpad text symbols — format auto-detected from content
 shardpilot symbols upload --platform linux ./out/libgame.sym
@@ -110,12 +112,14 @@ The CLI appends `/api/v1/symbols/upload` or `/api/v1/symbols/wanted`. The base U
 |------|---------|
 | `SHARDPILOT_SYMBOLS_KEY` | API key with the `symbols:write` scope (required; never a flag) |
 | `SHARDPILOT_SYMBOLS_URL` | Endpoint base URL when `--url` is not given (default `https://symbols.shardpilot.com`) |
+| `SHARDPILOT_SYMBOLS_CHANNEL` | Upload build channel when `--channel` is not given: `develop` or `release` |
 
 ### Flags
 
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--url` | `$SHARDPILOT_SYMBOLS_URL`, then `https://symbols.shardpilot.com` | Endpoint base URL |
+| `--channel` | `$SHARDPILOT_SYMBOLS_CHANNEL` | *(required)* Build channel of the uploaded symbols: exactly `develop` or `release`. A given flag wins over the variable, even when empty. With neither set, or any other value (an empty one included), the command exits `1` before any request |
 | `--platform` | *(required)* | One of `windows`, `macos`, `linux`, `android`, `ios`, `tvos`, `web`, `ps4`, `ps5`, `xbox`, `switch`, `other`. Case is ignored. `mac`, `osx`, `darwin` → `macos`; `win`, `win64` and `Windows*` target names → `windows`; `linuxarm64` → `linux`; `iphone`, `ipad`, `ipados` → `ios`. Any other value is refused before upload (exit `1`). A symbol is matched to a crash by platform, so a symbol stored under a guessed one would never match |
 | `--format` | `auto` | `auto`, `breakpad`, `dsym`, `pdb`, `elf`, `proguard`, or `il2cpp_map` |
 | `--debug-id` | | Debug identifier, single file only. **Required for `pdb` and `il2cpp_map`**; for `proguard` it is **the app build id** and required; optional for `elf` |
@@ -180,7 +184,7 @@ These are the six formats the endpoint accepts.
 - name: Upload symbols to ShardPilot
   env:
     SHARDPILOT_SYMBOLS_KEY: ${{ secrets.SHARDPILOT_SYMBOLS_KEY }}
-  run: shardpilot symbols upload --platform linux out/symbols/*.sym
+  run: shardpilot symbols upload --channel release --platform linux out/symbols/*.sym
 ```
 
 ### Unreal Engine — post-package step
@@ -188,7 +192,7 @@ These are the six formats the endpoint accepts.
 After packaging produces the `.pdb` next to your binary (Windows shells expand `%VAR%`):
 
 ```bat
-shardpilot symbols upload --platform windows --debug-id %DEBUG_ID% "%ProjectDir%\Binaries\Win64\MyGame.pdb"
+shardpilot symbols upload --channel release --platform windows --debug-id %DEBUG_ID% "%ProjectDir%\Binaries\Win64\MyGame.pdb"
 ```
 
 ### Unity — post-build hook
@@ -204,7 +208,7 @@ public static class ShardPilotSymbols
         // SHARDPILOT_SYMBOLS_KEY comes from the CI job environment — never
         // hardcode it in the project.
         var p = System.Diagnostics.Process.Start("shardpilot",
-            $"symbols upload --platform android \"{buildPath}/symbols/libil2cpp.sym\"");
+            $"symbols upload --channel release --platform android \"{buildPath}/symbols/libil2cpp.sym\"");
         p.WaitForExit();
         if (p.ExitCode != 0) throw new System.Exception($"symbol upload failed ({p.ExitCode})");
     }
@@ -217,7 +221,7 @@ public static class ShardPilotSymbols
 tasks.register("uploadShardpilotSymbols", Exec) {
     // SHARDPILOT_SYMBOLS_KEY comes from the CI environment.
     commandLine("shardpilot", "symbols", "upload",
-        "--platform", "android",
+        "--channel", "release", "--platform", "android",
         "$buildDir/symbols/libgame.sym")
 }
 ```

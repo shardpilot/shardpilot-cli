@@ -76,7 +76,7 @@ func TestPlainHTTPAllowedToLoopback(t *testing.T) {
 			{"symbols", "upload", "--url", base, "--platform", "linux", path},
 			{"symbols", "missing", "--url", base},
 		} {
-			if _, stderr, code := runCLI(t, argv, map[string]string{"SHARDPILOT_SYMBOLS_KEY": "sp_test_key"}); code != ExitOK {
+			if _, stderr, code := runCLI(t, argv, map[string]string{"SHARDPILOT_SYMBOLS_KEY": "sp_test_key", "SHARDPILOT_SYMBOLS_CHANNEL": "develop"}); code != ExitOK {
 				t.Errorf("%s %s: exit = %d, want 0; stderr: %s", argv[1], base, code, stderr)
 			}
 		}
@@ -105,9 +105,10 @@ func TestSymbolsURLEnvReplacesIngestURL(t *testing.T) {
 	defer srv.Close()
 
 	env := map[string]string{
-		"SHARDPILOT_SYMBOLS_KEY": "sp_test_key",
-		"SHARDPILOT_SYMBOLS_URL": srv.URL,
-		"SHARDPILOT_INGEST_URL":  "http://127.0.0.1:1", // must not be read
+		"SHARDPILOT_SYMBOLS_KEY":     "sp_test_key",
+		"SHARDPILOT_SYMBOLS_URL":     srv.URL,
+		"SHARDPILOT_SYMBOLS_CHANNEL": "develop",
+		"SHARDPILOT_INGEST_URL":      "http://127.0.0.1:1", // must not be read
 	}
 	path := writeSymFile(t, "app.sym", "MODULE a b c d\n")
 	for _, argv := range [][]string{

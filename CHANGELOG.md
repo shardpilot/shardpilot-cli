@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-30
+
+### Breaking changes
+
+- `shardpilot symbols upload` now requires a build channel: pass
+  `--channel develop` or `--channel release`, or set
+  `SHARDPILOT_SYMBOLS_CHANNEL`. The flag wins over the variable. Without a
+  channel, or with any other value (an empty one included), the command exits
+  `1` before sending any request. Add a channel to existing upload jobs before
+  upgrading. The channel is sent with each upload as the `channel` field.
+
 ## [0.2.0] - 2026-10-29
 
 ### Release archives

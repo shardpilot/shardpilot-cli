@@ -53,9 +53,10 @@ func TestSymbolsKeyEnvironment(t *testing.T) {
 					argv = append(argv, "--platform", "linux", path)
 				}
 				stdout, stderr, code := runCLI(t, argv, map[string]string{
-					"SHARDPILOT_SYMBOLS_URL": "https://symbols.example.invalid",
-					"SHARDPILOT_SYMBOLS_KEY": tc.current,
-					"SHARDPILOT_API_KEY":     tc.legacy,
+					"SHARDPILOT_SYMBOLS_URL":     "https://symbols.example.invalid",
+					"SHARDPILOT_SYMBOLS_KEY":     tc.current,
+					"SHARDPILOT_SYMBOLS_CHANNEL": "develop",
+					"SHARDPILOT_API_KEY":         tc.legacy,
 				})
 				if tc.current == "" {
 					if code != ExitUsage || calls != 0 || !strings.Contains(stderr, "SHARDPILOT_SYMBOLS_KEY is not set") {
@@ -88,7 +89,7 @@ func TestSymbolsKeyHelp(t *testing.T) {
 func TestSymbolsKeyVersion(t *testing.T) {
 	t.Run("development", func(t *testing.T) {
 		stdout, stderr, code := runCLI(t, []string{"version"}, nil)
-		if code != ExitOK || stdout != "shardpilot 0.2.0-dev\n" || stderr != "" {
+		if code != ExitOK || stdout != "shardpilot 0.3.0-dev\n" || stderr != "" {
 			t.Errorf("version: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 	})

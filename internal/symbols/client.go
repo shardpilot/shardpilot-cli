@@ -76,6 +76,9 @@ type Request struct {
 	// Platform is the endpoint's required `platform` field (linux, android,
 	// ios, macos, windows, ...).
 	Platform string
+	// Channel is the endpoint's required `channel` field: the build
+	// channel, develop or release.
+	Channel string
 	// Format is the resolved symbol format, sent as the explicit `format`
 	// field — the CLI always names the format it detected so client and
 	// server never disagree about what was uploaded.
@@ -294,6 +297,7 @@ func newAPIError(status int, body []byte) *APIError {
 func beginMultipart(mw *multipart.Writer, req Request) (io.Writer, error) {
 	fields := [][2]string{
 		{"platform", req.Platform},
+		{"channel", req.Channel},
 		{"format", req.Format},
 		{"debug_id", req.DebugID},
 	}
