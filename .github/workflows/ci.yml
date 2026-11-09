@@ -127,10 +127,10 @@ jobs:
       - name: Check explicit release version stamping
         run: |
           ./dist/shardpilot_linux_amd64 version
-          make build VERSION=v0.4.0
+          make build VERSION=v0.4.1
           actual="$(./bin/shardpilot version)"
           printf '%s\n' "$actual"
-          test "$actual" = 'shardpilot v0.4.0'
+          test "$actual" = 'shardpilot v0.4.1'
 
       - name: Report NilAway
         if: always() && hashFiles('scripts/go_static_checks.py') != ''

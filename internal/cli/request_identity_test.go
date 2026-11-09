@@ -16,7 +16,7 @@ func TestSDKIdentityEveryRequest(t *testing.T) {
 	t.Cleanup(func() { version = original })
 	instantRetries(t)
 	for _, tc := range []struct{ name, version, identity string }{
-		{"development", developmentVersion, "cli/0.4.0-dev"},
+		{"development", developmentVersion, "cli/0.4.1-dev"},
 		{"tagged", "v1.2.3-alpha.1+build.9", "cli/1.2.3-alpha.1"},
 		{"module-version", "v0.0.0-20261009010203-abcdef012345", "cli/0.0.0-20261009010203-abcdef012345"},
 	} {
@@ -97,7 +97,7 @@ func TestSDKIdentityEveryRequest(t *testing.T) {
 
 func TestSDKIdentityVersionGrammar(t *testing.T) {
 	for _, tc := range []struct{ name, version, identity string }{
-		{"development", developmentVersion, "cli/0.4.0-dev"},
+		{"development", developmentVersion, "cli/0.4.1-dev"},
 		{"tag", "v1.2.3", "cli/1.2.3"},
 		{"untagged", "1.2.3", "cli/1.2.3"},
 		{"metadata", "v1.2.3-alpha.1+build.009", "cli/1.2.3-alpha.1"},

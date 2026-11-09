@@ -321,7 +321,7 @@ func TestLanePollBacksOffToItsCap(t *testing.T) {
 	}
 }
 
-// Round 1: a part URL that redirects is refused, never followed. Following it
+// A part URL that redirects is refused, never followed. Following it
 // would reach a target checkPlan never saw, with a Referer carrying the
 // presigned query, and could read the target's answer as the part's.
 func TestLanePartRedirectIsRefused(t *testing.T) {
@@ -344,7 +344,7 @@ type countingHash struct {
 
 func (c countingHash) Write(p []byte) (int, error) { *c.n += int64(len(p)); return c.Hash.Write(p) }
 
-// Round 2: a cancelled upload stops hashing at once rather than reading the
+// A cancelled upload stops hashing at once rather than reading the
 // whole file before its first context-aware call.
 func TestLaneStopsHashingWhenCanceled(t *testing.T) {
 	var hashed int64
@@ -367,7 +367,7 @@ func TestLaneStopsHashingWhenCanceled(t *testing.T) {
 	}
 }
 
-// Round 3: the client acts only on outcomes it knows. A complete whose every
+// The client acts only on outcomes it knows. A complete whose every
 // reply is lost is resolved by reading the session: completing means it took
 // effect and the verdict is awaited; open means it did not, and is aborted.
 func TestLaneResolvesACompleteWhoseReplyWasLost(t *testing.T) {
@@ -380,7 +380,7 @@ func TestLaneResolvesACompleteWhoseReplyWasLost(t *testing.T) {
 	}{
 		{"took effect", 99, []string{"completing", "done"}, true, 0},
 		{"did not", 99, []string{"open"}, false, 1},
-		{"settled before the retry", 1, []string{"done"}, true, 0}, // round 4: the retry conflicts
+		{"settled before the retry", 1, []string{"done"}, true, 0}, // the retried complete answers 409
 	} {
 		f := newLaneFake(t, []byte("0123456789"), 4)
 		f.completeDrop, f.statuses = tc.drops, tc.statuses
@@ -413,7 +413,7 @@ func hung(t *testing.T, actions map[string]int) (*laneFake, error) {
 	}
 }
 
-// 7b rounds 1 and 3: every lane request runs under its own bound, never the
+// Every lane request runs under its own bound, never the
 // session deadline alone. A hung initiate or complete-and-status ends the
 // upload unaborted (no session, or an unknown outcome); one hung poll does not.
 func TestLaneBoundsEveryRequest(t *testing.T) {

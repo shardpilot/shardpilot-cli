@@ -26,7 +26,7 @@ make build-all        # release matrix in dist/: linux, darwin, windows × amd64
 After a version is published, pin that exact version for source installation:
 
 ```sh
-go install github.com/shardpilot/shardpilot-cli/cmd/shardpilot@v0.4.0
+go install github.com/shardpilot/shardpilot-cli/cmd/shardpilot@v0.4.1
 ```
 
 `go install` compiles the package directly and never applies this repository's
@@ -37,11 +37,11 @@ way.
 For a published release, download the matching archive and `SHA256SUMS`.
 Archives cover Linux, macOS and Windows on amd64 and arm64; each carries the
 static binary, `LICENSE` and `NOTICE`. Unix archives preserve executable mode.
-Select the published version (the examples use `v0.4.0`) and its platform archive:
+Select the published version (the examples use `v0.4.1`) and its platform archive:
 
 ```sh
 set -eu
-version=v0.4.0
+version=v0.4.1
 asset=shardpilot_linux_amd64.tar.gz
 gh release download "$version" --repo shardpilot/shardpilot-cli \
   --pattern "$asset" --pattern SHA256SUMS

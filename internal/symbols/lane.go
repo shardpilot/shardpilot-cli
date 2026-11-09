@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-// LanePath is the direct multipart upload lane's route (T-757): one JSON
+// LanePath is the direct multipart upload lane's route: one JSON
 // action, with the parts PUT straight to presigned object-store URLs.
 const LanePath = "/api/v1/symbols/upload-sessions"
 

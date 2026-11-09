@@ -24,6 +24,8 @@ REPO_PATH = re.compile(
 )
 DOC_PATH = re.compile(r"\b(?:docs/[a-z0-9_./-]+\.md|(?:architecture|engineering)/[a-z0-9_./-]+)")
 DECISION = re.compile(r"\b(?:ADR|GAP)-[0-9]+", re.I)
+TASK = re.compile(r"\b(?:T|DEC)-[0-9]+\b")
+REVIEW_NOTE = re.compile(r"\brounds? [0-9]+(?:(?:,? (?:and|or)|,) [0-9]+)*:", re.I)
 NAME_DECLARATION = re.compile(r"\bcodename[ \t]*[:=][ \t]*[a-z][a-z0-9_-]*")
 PORT = re.compile(r"(?<![\w.])(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[(?:::1|(?:0{1,4}:){7}0{0,3}1)\]):(\d+)")
 
@@ -37,6 +39,10 @@ def categories(text, go_test=False):
         yield "internal-name"
     if DECISION.search(text):
         yield "decision-reference"
+    if TASK.search(text):
+        yield "task-reference"
+    if REVIEW_NOTE.search(text):
+        yield "review-note"
     # The closed endpoint is a synthetic transport-failure control.
     if any(not (go_test and endpoint == ("127.0.0.1", "1")) for endpoint in PORT.findall(lower)):
         yield "loopback-port"
