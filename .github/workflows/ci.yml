@@ -62,7 +62,7 @@ jobs:
 
   go:
     runs-on: ${{ fromJSON(github.event.repository.private && '["self-hosted","Linux","X64"]' || '["ubuntu-24.04"]') }}
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -100,8 +100,14 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/workflow-policy"
           "$RUNNER_TEMP/workflow-policy/bin/pip" install PyYAML==6.0.3
           "$RUNNER_TEMP/workflow-policy/bin/python" scripts/check-workflow-runners.py
+      - name: Set analysis output
+        if: always()
+        run: echo "STATIC_CHECK_OUTPUT=$RUNNER_TEMP/go-static-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
       - name: CI
-        run: make ci
+        run: |
+          make fmt
+          git diff --exit-code
+          make ci
 
       - name: Checksum verification fixtures
         run: python3 scripts/test-release-checksums.py
@@ -121,7 +127,32 @@ jobs:
       - name: Check explicit release version stamping
         run: |
           ./dist/shardpilot_linux_amd64 version
-          make build VERSION=v0.3.0
+          make build VERSION=v0.4.0
           actual="$(./bin/shardpilot version)"
           printf '%s\n' "$actual"
-          test "$actual" = 'shardpilot v0.3.0'
+          test "$actual" = 'shardpilot v0.4.0'
+
+      - name: Report NilAway
+        if: always() && hashFiles('scripts/go_static_checks.py') != ''
+        continue-on-error: true
+        run: make nilaway-report
+
+      - name: Preserve analysis status
+        if: always() && hashFiles('scripts/go_static_checks.py') != ''
+        continue-on-error: true
+        run: |
+          mkdir -p "$STATIC_CHECK_OUTPUT"
+          if [ ! -f "$STATIC_CHECK_OUTPUT/nilaway-status.json" ]; then
+            echo '{"analysis":"error","diagnostics":null,"error":"NilAway report step did not produce status"}' > "$STATIC_CHECK_OUTPUT/nilaway-status.json"
+          fi
+
+      - name: Upload static-analysis reports
+        if: always() && hashFiles('scripts/go_static_checks.py') != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-static-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.STATIC_CHECK_OUTPUT }}/**/*
+            !${{ env.STATIC_CHECK_OUTPUT }}/**/bin/**
+          retention-days: 7

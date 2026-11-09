@@ -4,6 +4,8 @@
 
 The wire contract this CLI is built against is the ShardPilot symbol-upload API (`POST /api/v1/symbols/upload`).
 
+The public source snapshot contains the staged files outside `EXPORT-EXCLUDE`. Run `make export-dryrun` to verify the snapshot and its `make ci` plan. The public surface check compares complete repository names in links, API URLs and raw-content URLs with its public allowlist. It also flags explicit codename declarations, decision references and loopback port literals. Its IPv6 port check covers the canonical compressed and fully expanded loopback forms.
+
 ## Status
 
 **v0 — `symbols upload` and `symbols missing` are implemented and tested.**
@@ -24,7 +26,7 @@ make build-all        # release matrix in dist/: linux, darwin, windows × amd64
 After a version is published, pin that exact version for source installation:
 
 ```sh
-go install github.com/shardpilot/shardpilot-cli/cmd/shardpilot@v0.3.0
+go install github.com/shardpilot/shardpilot-cli/cmd/shardpilot@v0.4.0
 ```
 
 `go install` compiles the package directly and never applies this repository's
@@ -35,11 +37,11 @@ way.
 For a published release, download the matching archive and `SHA256SUMS`.
 Archives cover Linux, macOS and Windows on amd64 and arm64; each carries the
 static binary, `LICENSE` and `NOTICE`. Unix archives preserve executable mode.
-Select the published version (the examples use `v0.3.0`) and its platform archive:
+Select the published version (the examples use `v0.4.0`) and its platform archive:
 
 ```sh
 set -eu
-version=v0.3.0
+version=v0.4.0
 asset=shardpilot_linux_amd64.tar.gz
 gh release download "$version" --repo shardpilot/shardpilot-cli \
   --pattern "$asset" --pattern SHA256SUMS
@@ -92,7 +94,15 @@ shardpilot symbols upload --platform android --format proguard --debug-id "$APP_
 shardpilot symbols upload --json --platform linux a.sym b.sym
 ```
 
-Files upload **serially, one result line per file**, and the process exits non-zero if any file failed. Uploads **stream** from disk (multipart over a pipe) — multi-GiB PDBs never need to fit in memory. The CLI declares an **exact `Content-Length`** and sends the `X-Shardpilot-Symbol-Format` admission hint on every upload. **Uploads are bounded at 64 MiB per file**; a file over the limit is rejected with the typed `upload_too_large` error. Transient failures (5xx, network) are retried 4 times with backoff; 4xx rejections are never retried.
+**Files too large for one request.** A pdb or elf file over 63 MiB goes through
+the server's direct multipart lane (`POST /api/v1/symbols/upload-sessions`),
+up to 2 GiB. The CLI hashes the file, sends its 64 MiB parts straight to object
+storage (`--timeout` bounds each part), then waits while the server verifies
+it; the result line adds the bytes and the session id. A larger file in any
+other format, or any file over 2 GiB, fails before a request with
+`upload_too_large`, and a server that does not serve the lane exits `4`.
+
+Files upload **serially, one result line per file**, and the process exits non-zero if any file failed. Uploads **stream** from disk (multipart over a pipe) — multi-GiB PDBs never need to fit in memory. The CLI declares an **exact `Content-Length`** and sends the `X-Shardpilot-Symbol-Format` admission hint on every upload. **A single request is bounded at 64 MiB** (63 MiB of file, after the multipart frame); a larger pdb or elf goes through the multipart lane above, and any other file over it fails with `upload_too_large`. Transient failures (5xx, network) are retried 4 times with backoff; 4xx rejections are never retried.
 
 ### Authentication
 
@@ -123,7 +133,7 @@ The CLI appends `/api/v1/symbols/upload` or `/api/v1/symbols/wanted`. The base U
 | `--platform` | *(required)* | One of `windows`, `macos`, `linux`, `android`, `ios`, `tvos`, `web`, `ps4`, `ps5`, `xbox`, `switch`, `other`. Case is ignored. `mac`, `osx`, `darwin` → `macos`; `win`, `win64` and `Windows*` target names → `windows`; `linuxarm64` → `linux`; `iphone`, `ipad`, `ipados` → `ios`. Any other value is refused before upload (exit `1`). A symbol is matched to a crash by platform, so a symbol stored under a guessed one would never match |
 | `--format` | `auto` | `auto`, `breakpad`, `dsym`, `pdb`, `elf`, `proguard`, or `il2cpp_map` |
 | `--debug-id` | | Debug identifier, single file only. **Required for `pdb` and `il2cpp_map`**; for `proguard` it is **the app build id** and required; optional for `elf` |
-| `--timeout` | `5m` | Per-file upload timeout |
+| `--timeout` | `5m` | Upload timeout: per file on the single-request door; per request and per part on the multipart lane, where the session (2 h) bounds the file |
 | `--json` | off | One JSON result object per file on stdout |
 
 Flags come before file paths: `shardpilot symbols upload [flags] <path>...`
@@ -231,11 +241,12 @@ tasks.register("uploadShardpilotSymbols", Exec) {
 Go `1.27.3`, stdlib only — no CLI framework, no third-party dependencies. `make fmt` and `make fmt-check` format with the gofmt beside the `go` they resolve, and refuse to run unless that installation reports exactly `go1.27.3`: a newer 1.27.x does not substitute. They derive the exact formatter release from the `go.mod` directive and pin `GOTOOLCHAIN=local`, so nothing here selects or downloads a toolchain: the `go` on your PATH must BE 1.27.3 — a 1.27.3 in the module cache behind an older `go` is refused — and with it installed the targets work offline. `gofmt` is the only formatter; there is no golangci-lint config, matching the org convention for SDK-adjacent repos.
 
 ```sh
-make ci      # gofmt check + go vet + go test + build
+make ci      # gofmt check + go vet + go test + build + analyzer interrupt controls
 go test ./...
 ```
 
 CI runs the same gates on every PR (`.github/workflows/ci.yml`). Public repositories select Ubuntu-hosted runners; CI checks the runner policy.
+Checkouts with the static analyzer inputs also run blocking enum coverage and emit advisory NilAway JSON status. Both use the same project arguments.
 
 ## Related
 

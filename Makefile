@@ -17,6 +17,7 @@ LDFLAGS   := -s -w $(if $(VERSION),-X github.com/shardpilot/shardpilot-cli/inter
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 .PHONY: build build-all archives checksums release-dryrun fmt fmt-check vet test ci clean
+.PHONY: public-surface-check export-dryrun
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/$(BINARY) $(PKG)
@@ -280,8 +281,27 @@ vet:
 test:
 	go test ./...
 
-ci: fmt-check vet test
+DEV_STATIC_INPUTS := $(wildcard go-static-checks.md scripts/go_static_checks.py tests/test_go_static_interrupt.py)
+ci: public-surface-check fmt-check vet test $(if $(DEV_STATIC_INPUTS),exhaustive-check static-checks-test)
 	go build ./...
+
+public-surface-check: export-dryrun
+	python3 tests/test_public_surface.py
+
+export-dryrun:
+	python3 scripts/export_public.py
 
 clean:
 	rm -rf bin dist
+
+ifneq ($(DEV_STATIC_INPUTS),)
+.PHONY: exhaustive-check nilaway-report static-checks-test
+exhaustive-check:
+	python3 scripts/go_static_checks.py exhaustive "$(GO)"
+
+nilaway-report:
+	python3 scripts/go_static_checks.py nilaway "$(GO)"
+
+static-checks-test:
+	python3 tests/test_go_static_interrupt.py scripts/go_static_checks.py
+endif

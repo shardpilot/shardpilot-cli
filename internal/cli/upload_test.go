@@ -368,6 +368,7 @@ func TestUploadUsageErrors(t *testing.T) {
 			env:        env,
 			wantStderr: "--platform is required",
 		},
+		{"nonpositive timeout", []string{"symbols", "upload", "--platform", "linux", "--timeout", "0s", path}, env, "--timeout must be positive"},
 		{
 			name:       "missing paths",
 			argv:       []string{"symbols", "upload", "--platform", "linux"},

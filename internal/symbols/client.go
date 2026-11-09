@@ -64,6 +64,9 @@ type Uploader struct {
 	UserAgent string
 	// SDKIdentity is the CLI's validated request identity.
 	SDKIdentity string
+	// LanePoll returns the wait before status poll n of a lane upload
+	// (0-based). defaultLanePoll when nil.
+	LanePoll func(n int) time.Duration
 }
 
 // Request describes one symbol file upload.

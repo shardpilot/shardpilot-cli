@@ -25,7 +25,7 @@ import (
 // version` and in every User-Agent.
 var version = developmentVersion
 
-const developmentVersion = "0.3.0-dev"
+const developmentVersion = "0.4.0-dev"
 
 // resolveVersion returns the linker-stamped version when there is one, and
 // otherwise falls back to the module version Go records in the binary.

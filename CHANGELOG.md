@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-09
+
+### Added
+
+- `shardpilot symbols upload` sends a pdb or elf file too large for one request
+  (over 63 MiB, up to 2 GiB) through the server's direct multipart lane: parts
+  go straight to object storage, and the CLI waits for the server's verdict.
+  Other formats over the single-request size, and any file over 2 GiB, fail
+  locally with `upload_too_large`; a server without the lane exits `4`.
+
+### Changed
+
+- `--timeout` is per file on the single-request door, and per request and per
+  part on the lane, whose session (2 h) bounds the file. It must be positive:
+  zero or a negative value now exits `1` before any request.
+
 ## [0.3.0] - 2026-10-30
 
 ### Breaking changes

@@ -89,7 +89,7 @@ func TestSymbolsKeyHelp(t *testing.T) {
 func TestSymbolsKeyVersion(t *testing.T) {
 	t.Run("development", func(t *testing.T) {
 		stdout, stderr, code := runCLI(t, []string{"version"}, nil)
-		if code != ExitOK || stdout != "shardpilot 0.3.0-dev\n" || stderr != "" {
+		if code != ExitOK || stdout != "shardpilot 0.4.0-dev\n" || stderr != "" {
 			t.Errorf("version: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 	})

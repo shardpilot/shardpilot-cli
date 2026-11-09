@@ -19,6 +19,15 @@ import (
 // set it to zero-delay so the 5xx retry path runs instantly.
 var retryBackoff func(retry int) time.Duration
 
+// singleRequestMaxFileBytes is the largest file the single-request door
+// carries: its 64 MiB cap bounds the whole multipart body, so 1 MiB is left
+// for the frame. A variable only so tests can exercise the lane with small
+// files.
+var singleRequestMaxFileBytes int64 = 63 << 20
+
+// lanePoll overrides the lane's status poll interval when non-nil (tests).
+var lanePoll func(n int) time.Duration
+
 const uploadUsage = `usage: shardpilot symbols upload [flags] <path>...
 
 Uploads debug symbol files to the ShardPilot symbol-upload endpoint
@@ -28,6 +37,12 @@ proguard and il2cpp_map are never detected: name them with --format. Files
 are streamed — multi-GiB symbol files never need to fit in memory — and
 uploaded serially, one result line per file. Flags must come before file
 paths.
+
+A pdb or elf file too large for one request (over 63 MiB) goes through the
+direct multipart lane (POST /api/v1/symbols/upload-sessions): its parts go
+straight to object storage, --timeout bounds each 64 MiB part, and the CLI
+waits for the server to verify the file. A larger file in any other format,
+or any file over 2 GiB, is refused before a request (upload_too_large).
 
 Transient failures (5xx, network) are retried 4 times with backoff; 4xx
 rejections are never retried.
@@ -57,7 +72,8 @@ exit codes:
      size cap)
   3  server or network failure (5xx after retries, timeout)
   4  this URL does not serve the endpoint (it answered 404, or a redirect,
-     which is never followed)
+     which is never followed), or does not serve the multipart lane a
+     large file needs
 
 With multiple files the exit code reflects the first failed file.
 `
@@ -73,7 +89,10 @@ type fileResult struct {
 	Status   int                     `json:"status,omitempty"`
 	Attempts int                     `json:"attempts,omitempty"`
 	Symbol   *symbols.UploadedSymbol `json:"symbol,omitempty"`
-	Error    *fileError              `json:"error,omitempty"`
+	// SessionID and Bytes describe a file sent through the multipart lane.
+	SessionID string     `json:"session_id,omitempty"`
+	Bytes     int64      `json:"bytes,omitempty"`
+	Error     *fileError `json:"error,omitempty"`
 
 	exit int
 }
@@ -92,7 +111,7 @@ func runSymbolsUpload(args []string, getenv func(string) string, lookupEnv func(
 		platform = fs.String("platform", "", "symbol platform (required): "+strings.Join(symbols.Platforms, ", ")+"; case is ignored, and mac, osx, darwin, win, win64, Windows* target names, linuxarm64, iphone, ipad and ipados are folded")
 		format   = fs.String("format", "auto", "symbol format: auto, breakpad, dsym, pdb, elf, proguard or il2cpp_map")
 		debugID  = fs.String("debug-id", "", "debug identifier, single file only: required for pdb and il2cpp_map, the app build id for proguard, optional for elf")
-		timeout  = fs.Duration("timeout", 5*time.Minute, "per-file upload timeout")
+		timeout  = fs.Duration("timeout", 5*time.Minute, "upload timeout: per file on the single-request door; per request and per part on the multipart lane, whose session bounds the file")
 		jsonOut  = fs.Bool("json", false, "machine-readable output: one JSON object per file on stdout")
 	)
 	fs.Usage = func() {
@@ -111,6 +130,9 @@ func runSymbolsUpload(args []string, getenv func(string) string, lookupEnv func(
 		return ExitUsage
 	}
 
+	if *timeout <= 0 { // one meaning on both doors: the lane would read it as unset
+		return usagef("--timeout must be positive (got %s)", *timeout)
+	}
 	paths := fs.Args()
 	if len(paths) == 0 {
 		return usagef("missing symbol file path(s); run with -h for usage")
@@ -180,6 +202,7 @@ func runSymbolsUpload(args []string, getenv func(string) string, lookupEnv func(
 		Backoff:     retryBackoff,
 		UserAgent:   "shardpilot-cli/" + resolvedVersion,
 		SDKIdentity: identity,
+		LanePoll:    lanePoll,
 	}
 
 	exitCode := ExitOK
@@ -238,6 +261,17 @@ func uploadOne(uploader *symbols.Uploader, host, path, platform, channel, explic
 		return fail(ExitUsage, "", debugIDRequired[format])
 	}
 
+	if info.Size() > singleRequestMaxFileBytes {
+		if format != symbols.FormatPDB && format != symbols.FormatELF {
+			return fail(ExitUsage, "upload_too_large", fmt.Sprintf("%s is %d bytes: too large for one request, and only pdb and elf go through the multipart lane", path, info.Size()))
+		}
+		if info.Size() > symbols.LaneMaxBytes {
+			return fail(ExitUsage, "upload_too_large", fmt.Sprintf("%s is %d bytes: over the multipart lane's 2 GiB", path, info.Size()))
+		}
+		return uploadThroughLane(uploader, host, res, symbols.LaneRequest{Path: path, Platform: platform,
+			Channel: channel, Format: format, DebugID: debugID, PartTimeout: timeout})
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	result, err := uploader.Upload(ctx, symbols.Request{
@@ -272,6 +306,45 @@ func uploadOne(uploader *symbols.Uploader, host, path, platform, channel, explic
 	return res
 }
 
+// uploadThroughLane sends one file through the multipart lane, which bounds
+// itself: each part by --timeout, the whole file by its session's expiry.
+func uploadThroughLane(uploader *symbols.Uploader, host string, res fileResult, req symbols.LaneRequest) fileResult {
+	lane, err := uploader.UploadLane(context.Background(), req)
+	res.SessionID = lane.SessionID
+	if err == nil {
+		res.OK, res.Bytes = true, lane.Size
+		return res
+	}
+	fail := func(exit int, code string) fileResult {
+		res.exit, res.Error = exit, &fileError{Code: code, Message: err.Error()}
+		return res
+	}
+	var apiErr *symbols.APIError
+	var partErr *symbols.PartError
+	var aborted *symbols.LaneAbortedError
+	switch {
+	case errors.As(err, &aborted):
+		return fail(ExitRejected, aborted.Reason)
+	case errors.As(err, &apiErr) && apiErr.Code == "symbol_upload_lane_disabled":
+		res.Status = apiErr.StatusCode
+		err = fmt.Errorf("%s does not serve the multipart upload lane, and the file is too large for one request", host)
+		return fail(ExitNotServed, apiErr.Code)
+	case errors.As(err, &apiErr):
+		res.Status = apiErr.StatusCode
+		if message, ok := notServed(host, http.MethodPost, symbols.LanePath, apiErr.StatusCode); ok {
+			err = errors.New(message)
+			return fail(ExitNotServed, apiErr.Code)
+		}
+		if apiErr.StatusCode >= 500 {
+			return fail(ExitUnavailable, apiErr.Code)
+		}
+		return fail(ExitRejected, apiErr.Code)
+	case errors.As(err, &partErr) && partErr.StatusCode >= 400 && partErr.StatusCode < 500:
+		return fail(ExitRejected, partErr.Code)
+	}
+	return fail(ExitUnavailable, "")
+}
+
 // debugIDRequired says why each format that needs --debug-id needs it.
 var debugIDRequired = map[string]string{
 	symbols.FormatPDB:       "pdb uploads require --debug-id (the endpoint cannot parse PDB metadata yet)",
@@ -296,6 +369,9 @@ func printResult(w io.Writer, res fileResult) {
 		}
 	} else if res.DebugID != "" {
 		line += " debug_id=" + res.DebugID
+	}
+	if res.SessionID != "" {
+		line += fmt.Sprintf(" bytes=%d session=%s", res.Bytes, res.SessionID)
 	}
 	fmt.Fprintln(w, line)
 }
